@@ -225,7 +225,7 @@ export default function SyncSpot() {
                     </h3>
                   </div>
                   
-                  {user.id === question.user_id && (
+                  {user.id === question.asked_by && (
                     <Button
                       variant="outline"
                       size="sm"
