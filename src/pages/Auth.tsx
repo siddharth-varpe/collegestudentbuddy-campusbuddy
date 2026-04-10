@@ -132,7 +132,7 @@ export default function Auth() {
                     <Label htmlFor="signin-email">Email</Label>
                     <Input
                       id="signin-email"
-                      type="text"
+                      type="email"
                       placeholder="your.email@college.edu"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
