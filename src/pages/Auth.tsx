@@ -35,15 +35,6 @@ export default function Auth() {
     navigate('/');
     return null;
   }
-    email: '',
-    password: '',
-    fullName: '',
-    division: '',
-    yearOfStudy: '',
-    branch: '',
-    rollNumber: '',
-    userType: 'student'  // Always student for regular signup
-  });
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
