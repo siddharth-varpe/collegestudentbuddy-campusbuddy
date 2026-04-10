@@ -21,8 +21,11 @@ import syncspotLogo from '@/assets/syncspot-logo.png';
 interface Question {
   id: string;
   question: string;
-  user_id: string;
+  asked_by: string;
+  student_name: string;
+  status: string;
   created_at: string;
+  updated_at: string;
   answers: Answer[];
 }
 

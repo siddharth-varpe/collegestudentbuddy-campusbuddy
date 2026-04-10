@@ -19,13 +19,22 @@ export default function Auth() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    fullName: '',
+    division: '',
+    yearOfStudy: '',
+    branch: '',
+    rollNumber: '',
+    userType: 'student'
+  });
+
   // Redirect if already authenticated
   if (user) {
     navigate('/');
     return null;
   }
-
-  const [formData, setFormData] = useState({
     email: '',
     password: '',
     fullName: '',
