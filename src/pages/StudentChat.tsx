@@ -183,9 +183,12 @@ export default function StudentChat() {
       <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full pb-20">
         {/* Fixed Greeting Message */}
         {showGreeting && (
-          <div className={`mx-4 mt-4 mb-2 p-4 bg-accent/30 rounded-2xl border border-accent/20 transition-all duration-500 ${!showGreeting ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
-            <p className="text-sm text-foreground font-medium text-center">
-              👋 Hey there! I'm your Campus Buddy. How can I help you today?
+          <div className={`mx-4 mt-4 mb-2 p-5 bg-gradient-to-r from-primary/10 to-accent/20 rounded-2xl border border-primary/15 transition-all duration-500 ${!showGreeting ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+            <p className="text-base text-foreground font-medium text-center leading-relaxed">
+              👋 Hey {profile?.full_name?.split(' ')[0] || 'there'}! I'm your <span className="text-primary font-semibold">Campus Buddy</span> — think of me as your friendly senior who knows the campus inside out! 🎓
+            </p>
+            <p className="text-xs text-muted-foreground text-center mt-1.5">
+              Ask me about classes, faculty, events, timetables & more!
             </p>
           </div>
         )}
