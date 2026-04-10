@@ -21,8 +21,11 @@ import syncspotLogo from '@/assets/syncspot-logo.png';
 interface Question {
   id: string;
   question: string;
-  user_id: string;
+  asked_by: string;
+  student_name: string;
+  status: string;
   created_at: string;
+  updated_at: string;
   answers: Answer[];
 }
 
@@ -222,7 +225,7 @@ export default function SyncSpot() {
                     </h3>
                   </div>
                   
-                  {user.id === question.user_id && (
+                  {user.id === question.asked_by && (
                     <Button
                       variant="outline"
                       size="sm"

@@ -19,12 +19,6 @@ export default function Auth() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Redirect if already authenticated
-  if (user) {
-    navigate('/');
-    return null;
-  }
-
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -33,8 +27,14 @@ export default function Auth() {
     yearOfStudy: '',
     branch: '',
     rollNumber: '',
-    userType: 'student'  // Always student for regular signup
+    userType: 'student'
   });
+
+  // Redirect if already authenticated
+  if (user) {
+    navigate('/');
+    return null;
+  }
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -132,7 +132,7 @@ export default function Auth() {
                     <Label htmlFor="signin-email">Email</Label>
                     <Input
                       id="signin-email"
-                      type="text"
+                      type="email"
                       placeholder="your.email@college.edu"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}

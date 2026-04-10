@@ -10,34 +10,10 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "13.0.4"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
-      chat_messages: {
-        Row: {
-          id: string
-          message: string
-          response: string | null
-          timestamp: string
-          user_id: string
-        }
-        Insert: {
-          id?: string
-          message: string
-          response?: string | null
-          timestamp?: string
-          user_id: string
-        }
-        Update: {
-          id?: string
-          message?: string
-          response?: string | null
-          timestamp?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       college_data: {
         Row: {
           category: string
@@ -48,13 +24,12 @@ export type Database = {
           file_type: string | null
           file_url: string | null
           id: string
-          parsed_content: string | null
           tags: string[] | null
           title: string
           updated_at: string
         }
         Insert: {
-          category: string
+          category?: string
           content: string
           created_at?: string
           created_by?: string | null
@@ -62,7 +37,6 @@ export type Database = {
           file_type?: string | null
           file_url?: string | null
           id?: string
-          parsed_content?: string | null
           tags?: string[] | null
           title: string
           updated_at?: string
@@ -76,7 +50,6 @@ export type Database = {
           file_type?: string | null
           file_url?: string | null
           id?: string
-          parsed_content?: string | null
           tags?: string[] | null
           title?: string
           updated_at?: string
@@ -101,8 +74,8 @@ export type Database = {
           branch?: string | null
           created_at?: string
           division?: string | null
-          email: string
-          full_name: string
+          email?: string
+          full_name?: string
           id?: string
           roll_number?: string | null
           updated_at?: string
@@ -131,24 +104,21 @@ export type Database = {
           created_at: string
           id: string
           question_id: string
-          updated_at: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           answer: string
           created_at?: string
           id?: string
           question_id: string
-          updated_at?: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           answer?: string
           created_at?: string
           id?: string
           question_id?: string
-          updated_at?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -162,25 +132,31 @@ export type Database = {
       }
       syncspot_questions: {
         Row: {
+          asked_by: string | null
           created_at: string
           id: string
           question: string
+          status: string
+          student_name: string | null
           updated_at: string
-          user_id: string
         }
         Insert: {
+          asked_by?: string | null
           created_at?: string
           id?: string
           question: string
+          status?: string
+          student_name?: string | null
           updated_at?: string
-          user_id: string
         }
         Update: {
+          asked_by?: string | null
           created_at?: string
           id?: string
           question?: string
+          status?: string
+          student_name?: string | null
           updated_at?: string
-          user_id?: string
         }
         Relationships: []
       }
@@ -189,18 +165,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      create_faculty_account: {
-        Args: Record<PropertyKey, never>
-        Returns: Json
-      }
-      get_user_display_name: {
-        Args: { user_uuid: string }
-        Returns: string
-      }
-      setup_faculty_account: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
+      [_ in never]: never
     }
     Enums: {
       [_ in never]: never
