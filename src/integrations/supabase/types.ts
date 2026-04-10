@@ -14,7 +14,152 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      college_data: {
+        Row: {
+          category: string
+          content: string
+          created_at: string
+          created_by: string | null
+          file_name: string | null
+          file_type: string | null
+          file_url: string | null
+          id: string
+          tags: string[] | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string
+          content: string
+          created_at?: string
+          created_by?: string | null
+          file_name?: string | null
+          file_type?: string | null
+          file_url?: string | null
+          id?: string
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          content?: string
+          created_at?: string
+          created_by?: string | null
+          file_name?: string | null
+          file_type?: string | null
+          file_url?: string | null
+          id?: string
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          branch: string | null
+          created_at: string
+          division: string | null
+          email: string
+          full_name: string
+          id: string
+          roll_number: string | null
+          updated_at: string
+          user_id: string
+          user_type: string
+          year_of_study: number | null
+        }
+        Insert: {
+          branch?: string | null
+          created_at?: string
+          division?: string | null
+          email?: string
+          full_name?: string
+          id?: string
+          roll_number?: string | null
+          updated_at?: string
+          user_id: string
+          user_type?: string
+          year_of_study?: number | null
+        }
+        Update: {
+          branch?: string | null
+          created_at?: string
+          division?: string | null
+          email?: string
+          full_name?: string
+          id?: string
+          roll_number?: string | null
+          updated_at?: string
+          user_id?: string
+          user_type?: string
+          year_of_study?: number | null
+        }
+        Relationships: []
+      }
+      syncspot_answers: {
+        Row: {
+          answer: string
+          created_at: string
+          id: string
+          question_id: string
+          user_id: string | null
+        }
+        Insert: {
+          answer: string
+          created_at?: string
+          id?: string
+          question_id: string
+          user_id?: string | null
+        }
+        Update: {
+          answer?: string
+          created_at?: string
+          id?: string
+          question_id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "syncspot_answers_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "syncspot_questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      syncspot_questions: {
+        Row: {
+          asked_by: string | null
+          created_at: string
+          id: string
+          question: string
+          status: string
+          student_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          asked_by?: string | null
+          created_at?: string
+          id?: string
+          question: string
+          status?: string
+          student_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          asked_by?: string | null
+          created_at?: string
+          id?: string
+          question?: string
+          status?: string
+          student_name?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
