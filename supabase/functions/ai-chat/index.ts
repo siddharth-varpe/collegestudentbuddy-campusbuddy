@@ -20,6 +20,70 @@ interface CollegeData {
   parsed_content?: string;
 }
 
+function buildSystemPrompt(fullContext: string): string {
+  return `You are Campus Buddy, a campus guide that helps students with college-related questions.
+
+STRICT DATA RULE — THIS IS YOUR #1 PRIORITY:
+- You may ONLY answer using the "Available Campus Data" provided below.
+- If the answer is NOT found in the data below, you MUST respond with exactly: SYNCSPOT_REDIRECT
+- NEVER guess, assume, fabricate, or provide generic information.
+- NEVER use your general knowledge to answer campus questions.
+- If data is partially available, share only what you have and say you don't have the rest.
+
+TONE:
+- Professional, friendly, concise — like a helpful senior student.
+- Never say "according to the database" or "in the provided data". Speak naturally.
+- Keep answers to 1-3 sentences.
+
+FORMATTING:
+- Use **bold** for key info (names, times, rooms).
+- No single asterisks — only **double** for bold.
+
+SCOPE:
+- Only answer college-related questions (academics, faculty, timetables, events, campus facilities, documents).
+- Non-college questions: "I can only help with campus-related questions."
+
+AMBIGUITY:
+- If multiple matches exist, ask a clarifying question.
+
+Available Campus Data:
+${fullContext || 'No data available yet. Respond with SYNCSPOT_REDIRECT for any question.'}`;
+}
+
+async function postToSyncSpot(req: Request, supabaseUrl: string, supabaseKey: string, message: string) {
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader) return;
+  try {
+    const token = authHeader.replace('Bearer ', '');
+    const supabaseClient = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+    const { data: userData } = await supabaseClient.auth.getUser(token);
+    if (userData?.user) {
+      await supabaseClient.from('syncspot_questions').insert({
+        question: message,
+        user_id: userData.user.id
+      });
+      console.log('Question posted to SyncSpot');
+    }
+  } catch (e) {
+    console.error('Error posting to SyncSpot:', e);
+  }
+}
+
+function makeSyncSpotResponse() {
+  return new Response(JSON.stringify({
+    response: "I don't have that information right now. I've posted your question to **SyncSpot** where the community can help!",
+    redirect: 'syncspot'
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function cleanResponse(text: string): string {
+  return text.replace(/(?<!\*)\*(?!\*)/g, '');
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -27,10 +91,7 @@ serve(async (req) => {
 
   try {
     const { message } = await req.json();
-    
-    if (!message) {
-      throw new Error('Message is required');
-    }
+    if (!message) throw new Error('Message is required');
 
     console.log('Received message:', message);
 
@@ -39,117 +100,48 @@ serve(async (req) => {
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
     const mistralApiKey = Deno.env.get('MISTRAL_API_KEY');
 
-    if (!geminiApiKey) {
-      throw new Error('GEMINI_API_KEY not configured');
+    if (!geminiApiKey && !mistralApiKey) {
+      throw new Error('No AI API keys configured');
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch all college data including parsed content from documents
-    const { data: collegeData, error: dbError } = await supabase
-      .from('college_data')
-      .select('*')
-      .order('created_at', { ascending: false });
+    // Fetch college data and SyncSpot Q&A in parallel
+    const [collegeResult, syncSpotResult] = await Promise.all([
+      supabase.from('college_data').select('*').order('created_at', { ascending: false }),
+      supabase.from('syncspot_questions').select('*, syncspot_answers (*)').order('created_at', { ascending: false })
+    ]);
 
-    if (dbError) {
-      console.error('Database error:', dbError);
+    if (collegeResult.error) {
+      console.error('Database error:', collegeResult.error);
       throw new Error('Failed to fetch college data');
     }
 
-    const { data: syncSpotData, error: syncSpotError } = await supabase
-      .from('syncspot_questions')
-      .select(`
-        *,
-        syncspot_answers (*)
-      `)
-      .order('created_at', { ascending: false });
-
-    if (syncSpotError) {
-      console.error('SyncSpot data error:', syncSpotError);
-    }
-
-    // Build comprehensive context from all college data
-    const context = collegeData?.map((item: CollegeData) => {
+    // Build context
+    const context = collegeResult.data?.map((item: CollegeData) => {
       const tags = item.tags ? item.tags.join(', ') : '';
-      let contextStr = `Title: ${item.title}\nCategory: ${item.category}\nContent: ${item.content}\nTags: ${tags}`;
-      
-      if (item.parsed_content) {
-        contextStr += `\nDocument Content: ${item.parsed_content}`;
-      }
-      
-      if (item.file_name) {
-        contextStr += `\nAttached File: ${item.file_name} (${item.file_type || 'unknown type'})`;
-      }
-      
-      return contextStr + '\n---';
+      let s = `Title: ${item.title}\nCategory: ${item.category}\nContent: ${item.content}\nTags: ${tags}`;
+      if (item.parsed_content) s += `\nDocument Content: ${item.parsed_content}`;
+      if (item.file_name) s += `\nAttached File: ${item.file_name} (${item.file_type || 'unknown'})`;
+      return s + '\n---';
     }).join('\n\n') || '';
 
-    const syncSpotContext = syncSpotData?.map((question: any) => {
-      if (question.syncspot_answers && question.syncspot_answers.length > 0) {
-        const answers = question.syncspot_answers.map((answer: any) => 
-          `Answer: ${answer.answer}`
-        ).join('\n');
-        return `Community Q&A:\nQuestion: ${question.question}\n${answers}\n---`;
+    const syncSpotContext = syncSpotResult.data?.map((q: any) => {
+      if (q.syncspot_answers?.length > 0) {
+        const answers = q.syncspot_answers.map((a: any) => `Answer: ${a.answer}`).join('\n');
+        return `Community Q&A:\nQuestion: ${q.question}\n${answers}\n---`;
       }
       return '';
     }).filter(Boolean).join('\n\n') || '';
 
     const fullContext = [context, syncSpotContext].filter(Boolean).join('\n\n');
+    const systemPrompt = buildSystemPrompt(fullContext);
 
-    // First, try Mistral with document context for document-based questions
-    console.log('Attempting Mistral AI with document context...');
-    
-    const mistralSystemPrompt = `You are Campus Buddy, a knowledgeable and professional campus guide designed to assist students with precise, context-aware information.
-
-CORE IDENTITY & BEHAVIOR:
-- Professional yet approachable tone - like a helpful senior student or campus staff member
-- Always guidance-oriented: help students navigate campus resources efficiently
-- NEVER break immersion with AI disclaimers or phrases like "according to the database" or "in the provided data"
-- Respond naturally as if you have this knowledge firsthand
-
-RESPONSE SPECIFICITY RULES:
-1. Be DIRECT and SPECIFIC - no generic answers
-   - Student asks "Who teaches mathematics?" → Answer: "Dr. Anjali Rao" (not "there are math teachers")
-   - Student asks "When is the physics lab?" → Answer: "Monday 2:00 PM in Lab B12"
-
-2. Handle AMBIGUITY with clarifying questions:
-   - If multiple possibilities exist, ask: "Which mathematics teacher: Dr. Rao (Calculus) or Prof. Singh (Algebra)?"
-   - If context is unclear, request specifics: "Which semester's timetable do you need?"
-
-3. DOCUMENT-BASED queries:
-   - First check extracted OCR data from uploaded documents
-   - Retrieve exact information from structured database
-   - If timetable query: provide exact time, room, and faculty from document
-   - If notice query: provide exact dates, venue, and event details
-
-4. ACCURACY OVER ASSUMPTIONS:
-   - Answer ONLY from available data - never guess or provide generic information
-   - If information is incomplete, state what you know and ask for clarification
-   - If answer is not available, respond with: "SYNCSPOT_REDIRECT"
-
-5. FORMAT & STYLE:
-   - Use **bold** for the direct answer (teacher names, times, locations)
-   - Keep responses concise but complete - 1-2 sentences maximum
-   - Never use phrases like "In the database", "According to faculty data", "The system shows"
-   - Respond as if you personally know this information
-
-6. CONTEXT AWARENESS:
-   - Check who is asking (student profile, department, year)
-   - Check which document or subject is relevant
-   - Prioritize most recent/relevant data when multiple sources exist
-
-7. OUT OF SCOPE handling:
-   - Only answer college-related questions: academics, events, faculty, campus facilities, timetables, documents
-   - Non-college questions: "I can only help with campus-related questions."
-
-Available Campus Data:
-${fullContext || 'No data available yet.'}`;
-
-    try {
-      // Primary: Try Mistral first for document-based answers
-      const mistralResponse = await fetch(
-        'https://api.mistral.ai/v1/chat/completions',
-        {
+    // Try Mistral first
+    if (mistralApiKey) {
+      try {
+        console.log('Trying Mistral...');
+        const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -158,206 +150,86 @@ ${fullContext || 'No data available yet.'}`;
           body: JSON.stringify({
             model: 'mistral-large-latest',
             messages: [
-              { role: 'system', content: mistralSystemPrompt },
+              { role: 'system', content: systemPrompt },
               { role: 'user', content: message }
             ],
-            temperature: 0.7,
+            temperature: 0.3,
             max_tokens: 500
+          })
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          console.error('Mistral error:', resp.status, errText);
+          throw new Error('Mistral failed');
+        }
+
+        const data = await resp.json();
+        let text = data.choices?.[0]?.message?.content || '';
+
+        if (!text) throw new Error('Empty Mistral response');
+
+        text = cleanResponse(text);
+
+        if (text.includes('SYNCSPOT_REDIRECT')) {
+          await postToSyncSpot(req, supabaseUrl, supabaseKey, message);
+          return makeSyncSpotResponse();
+        }
+
+        return new Response(JSON.stringify({ response: text, source: 'mistral' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        console.error('Mistral failed, trying Gemini:', e);
+      }
+    }
+
+    // Fallback: Gemini
+    if (geminiApiKey) {
+      console.log('Trying Gemini...');
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `${systemPrompt}\n\nStudent Question: ${message}` }] }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 500 }
           })
         }
       );
 
-      if (!mistralResponse.ok) {
-        const errorText = await mistralResponse.text();
-        console.error('Mistral API error:', mistralResponse.status, errorText);
-        throw new Error('Mistral API failed');
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.error('Gemini error:', resp.status, errText);
+        throw new Error('All AI services failed');
       }
 
-      const mistralData = await mistralResponse.json();
-      console.log('Mistral response received');
-      
-      let responseText = mistralData.choices?.[0]?.message?.content || 'No response generated';
-      
-      // Remove single asterisks
-      responseText = responseText.replace(/(?<!\*)\*(?!\*)/g, '');
+      const data = await resp.json();
+      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-      // Check if Mistral couldn't find the answer
-      if (responseText.includes('SYNCSPOT_REDIRECT')) {
-        // Post question to SyncSpot automatically
-        const authHeader = req.headers.get('authorization');
-        if (authHeader) {
-          try {
-            const token = authHeader.replace('Bearer ', '');
-            const supabaseClient = createClient(supabaseUrl, supabaseKey, {
-              global: { headers: { Authorization: authHeader } }
-            });
-            
-            const { data: userData } = await supabaseClient.auth.getUser(token);
-            
-            if (userData?.user) {
-              await supabaseClient
-                .from('syncspot_questions')
-                .insert({
-                  question: message,
-                  user_id: userData.user.id
-                });
-              
-              console.log('Question posted to SyncSpot');
-            }
-          } catch (syncSpotError) {
-            console.error('Error posting to SyncSpot:', syncSpotError);
-          }
-        }
-        
-        return new Response(JSON.stringify({ 
-          response: "I don't have information about this in my database. I've posted your question to **SyncSpot** where the community can help answer it.",
-          redirect: 'syncspot'
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+      if (!text) throw new Error('Empty Gemini response');
+
+      text = cleanResponse(text);
+
+      if (text.includes('SYNCSPOT_REDIRECT')) {
+        await postToSyncSpot(req, supabaseUrl, supabaseKey, message);
+        return makeSyncSpotResponse();
       }
 
-      return new Response(JSON.stringify({ 
-        response: responseText,
-        source: 'mistral'
-      }), {
+      return new Response(JSON.stringify({ response: text, source: 'gemini' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
-
-    } catch (mistralError) {
-      console.error('Mistral failed, trying Gemini as fallback:', mistralError);
-      
-      // Fallback: Try Gemini if Mistral fails
-      if (geminiApiKey) {
-        try {
-          const geminiSystemPrompt = `You are Campus Buddy, a knowledgeable and professional campus guide designed to assist students with precise, context-aware information.
-
-CORE IDENTITY & BEHAVIOR:
-- Professional yet approachable tone - like a helpful senior student or campus staff member
-- Always guidance-oriented: help students navigate campus resources efficiently
-- NEVER break immersion with AI disclaimers or phrases like "according to the database" or "in the provided data"
-- Respond naturally as if you have this knowledge firsthand
-
-RESPONSE SPECIFICITY RULES:
-1. Be DIRECT and SPECIFIC - no generic answers
-   - Student asks "Who teaches mathematics?" → Answer: "Dr. Anjali Rao" (not "there are math teachers")
-   - Student asks "When is the physics lab?" → Answer: "Monday 2:00 PM in Lab B12"
-
-2. Handle AMBIGUITY with clarifying questions:
-   - If multiple possibilities exist, ask: "Which mathematics teacher: Dr. Rao (Calculus) or Prof. Singh (Algebra)?"
-   - If context is unclear, request specifics: "Which semester's timetable do you need?"
-
-3. DOCUMENT-BASED queries:
-   - First check extracted OCR data from uploaded documents
-   - Retrieve exact information from structured database
-   - If timetable query: provide exact time, room, and faculty from document
-   - If notice query: provide exact dates, venue, and event details
-
-4. ACCURACY OVER ASSUMPTIONS:
-   - Answer ONLY from available data - never guess or provide generic information
-   - If information is incomplete, state what you know and ask for clarification
-   - If answer is not available, respond with: "SYNCSPOT_REDIRECT"
-
-5. FORMAT & STYLE:
-   - Use **bold** for the direct answer (teacher names, times, locations)
-   - Keep responses concise but complete - 1-2 sentences maximum
-   - Never use phrases like "In the database", "According to faculty data", "The system shows"
-   - Respond as if you personally know this information
-
-6. CONTEXT AWARENESS:
-   - Check who is asking (student profile, department, year)
-   - Check which document or subject is relevant
-   - Prioritize most recent/relevant data when multiple sources exist
-
-7. OUT OF SCOPE handling:
-   - Only answer college-related questions: academics, events, faculty, campus facilities, timetables, documents
-   - Non-college questions: "I can only help with campus-related questions."
-
-Available Campus Data:
-${fullContext || 'No data available.'}`;
-
-          const geminiResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [{
-                    text: `${geminiSystemPrompt}\n\nQuestion: ${message}`
-                  }]
-                }],
-                generationConfig: {
-                  temperature: 0.7,
-                  maxOutputTokens: 500,
-                }
-              })
-            }
-          );
-
-          if (!geminiResponse.ok) {
-            throw new Error('Gemini API also failed');
-          }
-
-          const geminiData = await geminiResponse.json();
-          let responseText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
-          
-          responseText = responseText.replace(/(?<!\*)\*(?!\*)/g, '');
-
-          if (responseText.includes('SYNCSPOT_REDIRECT')) {
-            const authHeader = req.headers.get('authorization');
-            if (authHeader) {
-              try {
-                const token = authHeader.replace('Bearer ', '');
-                const supabaseClient = createClient(supabaseUrl, supabaseKey, {
-                  global: { headers: { Authorization: authHeader } }
-                });
-                
-                const { data: userData } = await supabaseClient.auth.getUser(token);
-                
-                if (userData?.user) {
-                  await supabaseClient
-                    .from('syncspot_questions')
-                    .insert({
-                      question: message,
-                      user_id: userData.user.id
-                    });
-                }
-              } catch (syncSpotError) {
-                console.error('Error posting to SyncSpot:', syncSpotError);
-              }
-            }
-            
-            return new Response(JSON.stringify({ 
-              response: "I don't have information about this in my database. I've posted your question to **SyncSpot** where the community can help answer it.",
-              redirect: 'syncspot'
-            }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
-
-          return new Response(JSON.stringify({ 
-            response: responseText,
-            source: 'gemini'
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-
-        } catch (geminiError) {
-          console.error('Both Mistral and Gemini failed:', geminiError);
-          throw new Error('All AI services are currently unavailable');
-        }
-      }
-
-      throw mistralError;
     }
 
+    throw new Error('No AI API keys available');
+
   } catch (error) {
-    console.error('Error in ai-chat function:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    return new Response(JSON.stringify({ 
-      error: errorMessage,
-      response: "I'm having trouble accessing my knowledge base right now. Please try again later."
+    console.error('Error in ai-chat:', error);
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return new Response(JSON.stringify({
+      error: msg,
+      response: "I'm having trouble right now. Please try again later."
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
