@@ -20,7 +20,9 @@ import {
   Upload,
   File,
   X,
-  Save
+  Save,
+  Pencil,
+  Check
 } from 'lucide-react';
 
 interface CollegeData {
@@ -60,6 +62,8 @@ export default function FacultyDashboard() {
   const [isTraining, setIsTraining] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editData, setEditData] = useState({ title: '', category: '', content: '', tags: '' });
 
   const [formData, setFormData] = useState({
     title: '',
@@ -296,6 +300,33 @@ export default function FacultyDashboard() {
         description: "Failed to delete data.",
         variant: "destructive"
       });
+    }
+  };
+
+  const startEdit = (item: CollegeData) => {
+    setEditingId(item.id);
+    setEditData({
+      title: item.title,
+      category: item.category,
+      content: item.content,
+      tags: item.tags?.join(', ') || ''
+    });
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    try {
+      const tags = editData.tags ? editData.tags.split(',').map(t => t.trim()).filter(Boolean) : null;
+      const { error } = await supabase
+        .from('college_data')
+        .update({ title: editData.title, category: editData.category, content: editData.content, tags })
+        .eq('id', id);
+      if (error) throw error;
+      toast({ title: "Success", description: "Data updated successfully!" });
+      setEditingId(null);
+      fetchCollegeData();
+    } catch (error) {
+      console.error('Error updating data:', error);
+      toast({ title: "Error", description: "Failed to update data.", variant: "destructive" });
     }
   };
 
