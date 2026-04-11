@@ -20,7 +20,9 @@ import {
   Upload,
   File,
   X,
-  Save
+  Save,
+  Pencil,
+  Check
 } from 'lucide-react';
 
 interface CollegeData {
@@ -60,6 +62,8 @@ export default function FacultyDashboard() {
   const [isTraining, setIsTraining] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editData, setEditData] = useState({ title: '', category: '', content: '', tags: '' });
 
   const [formData, setFormData] = useState({
     title: '',
@@ -299,6 +303,33 @@ export default function FacultyDashboard() {
     }
   };
 
+  const startEdit = (item: CollegeData) => {
+    setEditingId(item.id);
+    setEditData({
+      title: item.title,
+      category: item.category,
+      content: item.content,
+      tags: item.tags?.join(', ') || ''
+    });
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    try {
+      const tags = editData.tags ? editData.tags.split(',').map(t => t.trim()).filter(Boolean) : null;
+      const { error } = await supabase
+        .from('college_data')
+        .update({ title: editData.title, category: editData.category, content: editData.content, tags })
+        .eq('id', id);
+      if (error) throw error;
+      toast({ title: "Success", description: "Data updated successfully!" });
+      setEditingId(null);
+      fetchCollegeData();
+    } catch (error) {
+      console.error('Error updating data:', error);
+      toast({ title: "Error", description: "Failed to update data.", variant: "destructive" });
+    }
+  };
+
   const handleOptimizeAI = async () => {
     if (collegeData.length === 0) {
       toast({
@@ -458,40 +489,80 @@ export default function FacultyDashboard() {
         <div className="space-y-4 max-h-[60vh] overflow-y-auto">
           {collegeData.map((item) => (
             <div key={item.id} className="border border-border rounded-lg p-4 space-y-2">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <h4 className="font-medium text-foreground">{item.title}</h4>
-                  <p className="text-sm text-muted-foreground">{item.category}</p>
+              {editingId === item.id ? (
+                <div className="space-y-3">
+                  <Input
+                    value={editData.title}
+                    onChange={(e) => setEditData(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="Title"
+                  />
+                  <Select value={editData.category} onValueChange={(v) => setEditData(prev => ({ ...prev, category: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Textarea
+                    value={editData.content}
+                    onChange={(e) => setEditData(prev => ({ ...prev, content: e.target.value }))}
+                    placeholder="Content"
+                    className="min-h-20"
+                  />
+                  <Input
+                    value={editData.tags}
+                    onChange={(e) => setEditData(prev => ({ ...prev, tags: e.target.value }))}
+                    placeholder="Tags (comma-separated)"
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => handleSaveEdit(item.id)} className="gradient-campus">
+                      <Check className="h-4 w-4 mr-1" /> Save
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  onClick={() => handleDelete(item.id)}
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-              <p className="text-sm text-muted-foreground line-clamp-2">
-                {item.content}
-              </p>
-              {item.file_name && (
-                <div className="flex items-center gap-1 text-xs text-primary">
-                  <File className="h-3 w-3" />
-                  <span>{item.file_name}</span>
-                </div>
-              )}
-              {item.tags && item.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {item.tags.map((tag, index) => (
-                    <span
-                      key={index}
-                      className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-foreground">{item.title}</h4>
+                      <p className="text-sm text-muted-foreground">{item.category}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        onClick={() => startEdit(item)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-primary hover:bg-primary/10"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        onClick={() => handleDelete(item.id)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground line-clamp-2">{item.content}</p>
+                  {item.file_name && (
+                    <div className="flex items-center gap-1 text-xs text-primary">
+                      <File className="h-3 w-3" />
+                      <span>{item.file_name}</span>
+                    </div>
+                  )}
+                  {item.tags && item.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {item.tags.map((tag, index) => (
+                        <span key={index} className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ))}
