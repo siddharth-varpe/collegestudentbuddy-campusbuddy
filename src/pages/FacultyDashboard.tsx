@@ -178,13 +178,13 @@ export default function FacultyDashboard() {
         const filePath = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
         
         const { error: uploadError } = await supabase.storage
-          .from('college-documents')
+          .from('documents')
           .upload(filePath, uploadedFile);
 
         if (uploadError) throw uploadError;
 
         const { data: { publicUrl } } = supabase.storage
-          .from('college-documents')
+          .from('documents')
           .getPublicUrl(filePath);
 
         fileUrl = publicUrl;
@@ -198,7 +198,7 @@ export default function FacultyDashboard() {
           {
             title: formData.title,
             category: formData.category,
-            content: formData.content,
+            content: formData.content || `Uploaded file: ${uploadedFile?.name || 'document'}`,
             tags: tags,
             file_url: fileUrl,
             file_name: fileName,
