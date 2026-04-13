@@ -78,6 +78,13 @@ const Index = () => {
   const navigate = useNavigate();
   const typedSubtext = useTypingEffect('Ask anything about your college...', 45);
 
+  const demo = useScrollReveal();
+  const features = useScrollReveal();
+  const howItWorks = useScrollReveal();
+  const portals = useScrollReveal();
+  const testimonials = useScrollReveal();
+  const ctaBanner = useScrollReveal();
+
   useEffect(() => {
     if (!loading && user && profile?.user_type === 'student') {
       navigate('/chat');
