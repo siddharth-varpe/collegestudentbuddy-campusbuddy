@@ -21,10 +21,15 @@ serve(async (req) => {
 
     console.log('Processing document:', { fileName, fileType, recordId });
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const mistralApiKey = Deno.env.get('MISTRAL_API_KEY');
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
     
-    if (!mistralApiKey) {
-      console.log('Mistral API key not configured, skipping OCR processing');
+    if (!mistralApiKey && !geminiApiKey) {
+      console.log('No AI API keys configured, skipping OCR processing');
       return new Response(JSON.stringify({ 
         success: true, 
         message: 'Document uploaded successfully. OCR processing not configured.',
@@ -35,172 +40,99 @@ serve(async (req) => {
       });
     }
 
-    // Initialize Supabase client at the start
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Process image, PDF, and document files
-    const processableTypes = [
-      'image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/gif',
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-      'application/msword', // .doc
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-      'application/vnd.ms-excel', // .xls
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
-      'application/vnd.ms-powerpoint' // .ppt
+    // Extract the file path from the public URL
+    // The bucket is called "documents"
+    const bucketName = 'documents';
+    let filePath = '';
+    
+    // Try different URL patterns
+    const patterns = [
+      `/storage/v1/object/public/${bucketName}/`,
+      `/storage/v1/object/public/college-documents/`,
     ];
     
-    if (!processableTypes.includes(fileType)) {
-      console.log('File type not processable for OCR:', fileType);
+    for (const pattern of patterns) {
+      const idx = fileUrl.indexOf(pattern);
+      if (idx !== -1) {
+        filePath = fileUrl.substring(idx + pattern.length);
+        break;
+      }
+    }
+    
+    if (!filePath) {
+      // Fallback: take everything after the last bucket-like path
+      const urlObj = new URL(fileUrl);
+      const pathParts = urlObj.pathname.split('/');
+      // Find 'public' in path and take everything after the bucket name
+      const publicIdx = pathParts.indexOf('public');
+      if (publicIdx !== -1 && publicIdx + 2 < pathParts.length) {
+        filePath = pathParts.slice(publicIdx + 2).join('/');
+      } else {
+        throw new Error('Could not extract file path from URL: ' + fileUrl);
+      }
+    }
+
+    console.log('Downloading file from bucket:', bucketName, 'path:', filePath);
+
+    const { data: fileData, error: downloadError } = await supabase
+      .storage
+      .from(bucketName)
+      .download(filePath);
+    
+    if (downloadError || !fileData) {
+      console.error('Download error:', downloadError);
+      throw new Error('Failed to download file from storage: ' + (downloadError?.message || 'unknown'));
+    }
+
+    console.log('File downloaded successfully, size:', fileData.size, 'type:', fileType);
+
+    let extractedText = '';
+
+    // Handle plain text files directly
+    if (fileType === 'text/plain') {
+      extractedText = await fileData.text();
+      console.log('Text file read directly, length:', extractedText.length);
+    } else {
+      // For all other files (PDF, Word, Excel, PPT, images), use AI OCR
+      extractedText = await extractWithAI(fileData, fileType, fileName, mistralApiKey, geminiApiKey);
+    }
+
+    if (!extractedText || extractedText.length < 10) {
+      console.warn('Extraction yielded minimal content');
       return new Response(JSON.stringify({ 
         success: true, 
-        message: 'Document uploaded successfully. File type does not require OCR.',
-        parsedLength: 0,
+        message: 'Document uploaded but could not extract meaningful content.',
+        parsedLength: extractedText?.length || 0,
         aiProcessed: false
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    try {
-      console.log('Fetching file from storage:', fileUrl);
-      
-      // Extract the path from the full URL
-      const urlParts = fileUrl.split('/storage/v1/object/public/college-documents/');
-      if (urlParts.length !== 2) {
-        throw new Error('Invalid file URL format');
-      }
-      const filePath = urlParts[1];
-      
-      // Use Supabase client to download the file with proper authentication
-      const { data: fileData, error: downloadError } = await supabase
-        .storage
-        .from('college-documents')
-        .download(filePath);
-      
-      if (downloadError || !fileData) {
-        console.error('Download error:', downloadError);
-        throw new Error('Failed to download file from storage');
-      }
+    // Limit to reasonable size
+    extractedText = extractedText.slice(0, 50000);
 
-      console.log('File downloaded successfully, size:', fileData.size);
-      const base64Data = await blobToBase64(fileData);
+    // Save parsed content to database
+    const { error: updateError } = await supabase
+      .from('college_data')
+      .update({ parsed_content: extractedText })
+      .eq('id', recordId);
 
-      console.log('Calling Mistral Pixtral for OCR...');
-      
-      // Use Mistral Pixtral for OCR and document understanding
-      const mistralResponse = await fetch(
-        'https://api.mistral.ai/v1/chat/completions',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${mistralApiKey}`
-          },
-          body: JSON.stringify({
-            model: 'pixtral-12b-2409',
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: `You are Campus Buddy's OCR and Document Processing Engine. Your role is to accurately extract and structure all information from uploaded documents.
-
-EXTRACTION OBJECTIVES:
-1. Text Extraction: Detect and extract ALL text from any document type (PDF, Word, images, scanned notes, mixed content)
-2. Structure Preservation: Maintain original formatting including headings, tables, bullet points, numbered lists, and hierarchical structure
-3. Element Detection: Identify and extract tables, embedded images with text, charts, diagrams, and all structured elements
-4. Language & Accuracy: Perform language detection, handle multi-language content, correct OCR errors from scans, and fix typos
-
-SPECIFIC EXTRACTION REQUIREMENTS:
-- Timetables/Schedules: Extract ALL time slots, subjects, rooms, faculty names, days, and periods
-- Faculty/Staff Lists: Capture ALL names, designations, departments, contact information, and roles
-- Academic Documents: Extract course details, codes, credits, prerequisites, syllabi, and assessment criteria
-- Forms & Applications: Extract ALL fields, labels, values, checkboxes, signatures, and notes
-- Notices & Announcements: Capture dates, times, venues, organizers, and complete event details
-
-OUTPUT FORMAT (Structured Markdown):
-- Use # for main document headings
-- Use ## for section headings
-- Use ### for subsection headings
-- Use | for tables with proper alignment and headers
-- Use - for unordered lists
-- Use 1. for ordered lists
-- Use **bold** for important terms, names, and key information
-- Use \`code\` for IDs, codes, and reference numbers
-- Preserve all line breaks and spacing for readability
-
-QUALITY STANDARDS:
-- Be EXHAUSTIVE: Extract EVERY visible element, no matter how small
-- Be PRECISE: Maintain exact numbers, dates, times, and names
-- Be STRUCTURED: Organize information logically for easy querying
-- Be COMPLETE: Never omit information - if visible, extract it
-
-Your output will be stored in a structured, queryable database for Campus Buddy's AI to retrieve and answer student queries accurately.`
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: {
-                      url: base64Data
-                    }
-                  }
-                ]
-              }
-            ],
-            max_tokens: 4000
-          })
-        }
-      );
-
-      if (!mistralResponse.ok) {
-        const errorText = await mistralResponse.text();
-        console.error('Mistral OCR error:', mistralResponse.status, errorText);
-        throw new Error('Mistral OCR processing failed');
-      }
-
-      const mistralData = await mistralResponse.json();
-      const extractedText = mistralData.choices?.[0]?.message?.content || '';
-
-      console.log('OCR extraction completed, length:', extractedText.length);
-
-      // Update the database with parsed content (reuse supabase client)
-      const { error: updateError } = await supabase
-        .from('college_data')
-        .update({ parsed_content: extractedText })
-        .eq('id', recordId);
-
-      if (updateError) {
-        console.error('Failed to update parsed content:', updateError);
-        throw new Error('Failed to save OCR results');
-      }
-
-      console.log('Successfully saved OCR results to database');
-
-      return new Response(JSON.stringify({ 
-        success: true, 
-        message: 'Document processed successfully with OCR.',
-        parsedLength: extractedText.length,
-        aiProcessed: true
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-
-    } catch (ocrError) {
-      console.error('OCR processing error:', ocrError);
-      const errorMessage = ocrError instanceof Error ? ocrError.message : 'OCR processing failed';
-      
-      return new Response(JSON.stringify({ 
-        success: true,
-        message: 'Document uploaded but OCR processing failed.',
-        error: errorMessage,
-        aiProcessed: false
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    if (updateError) {
+      console.error('Failed to update parsed content:', updateError);
+      throw new Error('Failed to save OCR results');
     }
+
+    console.log('Successfully saved parsed content, length:', extractedText.length);
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: 'Document processed successfully.',
+      parsedLength: extractedText.length,
+      aiProcessed: true
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
 
   } catch (error) {
     console.error('Error in process-document function:', error);
@@ -216,12 +148,132 @@ Your output will be stored in a structured, queryable database for Campus Buddy'
   }
 });
 
-// Helper function to convert blob to base64 data URL
+async function extractWithAI(
+  fileData: Blob, 
+  fileType: string, 
+  fileName: string,
+  mistralApiKey: string | undefined, 
+  geminiApiKey: string | undefined
+): Promise<string> {
+  const base64Data = await blobToBase64(fileData);
+  
+  const extractionPrompt = `You are a document text extraction engine. Extract ALL text content from this document accurately.
+
+RULES:
+- Extract every piece of text visible in the document
+- Preserve structure: headings, tables, lists, paragraphs
+- For tables, use markdown table format
+- For lists, use bullet points or numbered lists
+- Include ALL names, dates, times, numbers, codes exactly as they appear
+- Do NOT add any commentary, summary, or interpretation
+- Do NOT skip any content
+- Output ONLY the extracted text in clean markdown format`;
+
+  // Try Gemini first for document processing (handles PDFs natively)
+  if (geminiApiKey) {
+    try {
+      console.log('Trying Gemini for document extraction...');
+      
+      // Gemini can process PDFs and images directly
+      const mimeType = fileType || 'application/octet-stream';
+      
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: extractionPrompt },
+                {
+                  inline_data: {
+                    mime_type: mimeType,
+                    data: base64Data,
+                  },
+                },
+              ],
+            }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 8000 }
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (text && text.length > 20) {
+          console.log('Gemini extraction successful, length:', text.length);
+          return text;
+        }
+        console.log('Gemini returned insufficient content, trying Mistral...');
+      } else {
+        const errText = await response.text();
+        console.error('Gemini extraction error:', response.status, errText);
+      }
+    } catch (e) {
+      console.error('Gemini extraction failed:', e);
+    }
+  }
+
+  // Fallback to Mistral Pixtral for images
+  if (mistralApiKey) {
+    try {
+      console.log('Trying Mistral for document extraction...');
+      
+      const isImage = fileType.startsWith('image/');
+      const dataUrl = `data:${fileType};base64,${base64Data}`;
+      
+      const messages: any[] = [{
+        role: 'user',
+        content: isImage ? [
+          { type: 'text', text: extractionPrompt },
+          { type: 'image_url', image_url: { url: dataUrl } }
+        ] : [
+          { type: 'text', text: `${extractionPrompt}\n\nDocument filename: ${fileName}\nDocument type: ${fileType}\n\nPlease extract all text from this document.` },
+          { type: 'image_url', image_url: { url: dataUrl } }
+        ]
+      }];
+
+      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${mistralApiKey}`
+        },
+        body: JSON.stringify({
+          model: 'pixtral-12b-2409',
+          messages,
+          max_tokens: 8000
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content || '';
+        if (text && text.length > 20) {
+          console.log('Mistral extraction successful, length:', text.length);
+          return text;
+        }
+      } else {
+        const errText = await response.text();
+        console.error('Mistral extraction error:', response.status, errText);
+      }
+    } catch (e) {
+      console.error('Mistral extraction failed:', e);
+    }
+  }
+
+  throw new Error('All AI extraction methods failed for this document');
+}
+
+// Convert blob to raw base64 string (without data URL prefix)
 async function blobToBase64(blob: Blob): Promise<string> {
   const arrayBuffer = await blob.arrayBuffer();
-  const base64 = btoa(
-    new Uint8Array(arrayBuffer)
-      .reduce((data, byte) => data + String.fromCharCode(byte), '')
-  );
-  return `data:${blob.type};base64,${base64}`;
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }

@@ -21,35 +21,33 @@ interface CollegeData {
 }
 
 function buildSystemPrompt(fullContext: string): string {
-  return `You are Campus Buddy — a warm, enthusiastic, and super-friendly campus guide who genuinely loves helping students! 🎓
+  return `You are Campus Buddy — a warm, friendly campus assistant that helps students find information about their college.
 
-PERSONALITY:
-- You're like that one amazing senior who always has your back — approachable, cheerful, and encouraging.
-- Use a warm conversational tone with occasional emojis (but don't overdo it — 1-2 per response max).
-- Celebrate when you can help! ("Great question!", "Oh I know this one! 😊")
-- Be empathetic when you can't help ("I wish I had that info for you!")
-- Keep answers concise (1-4 sentences) but make them feel personal, not robotic.
+ABSOLUTE RULES — NEVER VIOLATE THESE:
+1. You can ONLY answer using the "Available Campus Data" provided below. This is data uploaded by faculty members.
+2. You have ZERO general knowledge. You know NOTHING except what is in the data below.
+3. If the answer is NOT explicitly found in the data below, you MUST respond with exactly: SYNCSPOT_REDIRECT
+4. NEVER guess, assume, infer, or provide information from your training data.
+5. NEVER say things like "generally", "usually", "typically" — you only know what's in the data.
+6. NEVER provide generic college information. You are NOT a general knowledge assistant.
+7. If someone asks about something not covered in the data, respond with: SYNCSPOT_REDIRECT
+8. Even if you "know" the answer from your training, DO NOT use it. Only use the data below.
 
-STRICT DATA RULE — THIS IS YOUR #1 PRIORITY:
-- You may ONLY answer using the "Available Campus Data" provided below.
-- If the answer is NOT found in the data below, you MUST respond with exactly: SYNCSPOT_REDIRECT
-- NEVER guess, assume, fabricate, or provide generic information.
-- NEVER use your general knowledge to answer campus questions.
-- If data is partially available, share only what you have and warmly let them know you don't have the rest.
-
-FORMATTING:
-- Use **bold** for key info (names, times, rooms).
-- No single asterisks — only **double** for bold.
+PERSONALITY (only when you CAN answer from the data):
+- Warm and friendly, like a helpful senior student
+- Use 1-2 emojis per response max
+- Keep answers concise (1-4 sentences)
+- Use **bold** for key info (names, times, rooms)
 
 SCOPE:
-- Only answer college-related questions (academics, faculty, timetables, events, campus facilities, documents).
-- Non-college questions: respond kindly, e.g. "Haha, I wish I could help with that! 😄 But I'm only trained on campus stuff. Try me with a college question!"
-
-AMBIGUITY:
-- If multiple matches exist, ask a friendly clarifying question.
+- Only answer college-related questions using the data below
+- Non-college questions: "I'm only trained on campus data! Try me with a college question 😊"
+- If data partially matches, share only what you have and say you don't have the rest
 
 Available Campus Data:
-${fullContext || 'No data available yet. Respond with SYNCSPOT_REDIRECT for any question.'}`;
+${fullContext || 'No data available yet. Respond with SYNCSPOT_REDIRECT for any question.'}
+
+Remember: If the answer is not in the data above, respond with SYNCSPOT_REDIRECT. No exceptions.`;
 }
 
 async function postToSyncSpot(req: Request, supabaseUrl: string, supabaseKey: string, message: string) {
@@ -123,7 +121,7 @@ serve(async (req) => {
     const context = collegeResult.data?.map((item: CollegeData) => {
       const tags = item.tags ? item.tags.join(', ') : '';
       let s = `Title: ${item.title}\nCategory: ${item.category}\nContent: ${item.content}\nTags: ${tags}`;
-      if (item.parsed_content) s += `\nDocument Content: ${item.parsed_content}`;
+      if (item.parsed_content) s += `\nDocument Content (OCR Extracted): ${item.parsed_content}`;
       if (item.file_name) s += `\nAttached File: ${item.file_name} (${item.file_type || 'unknown'})`;
       return s + '\n---';
     }).join('\n\n') || '';
@@ -139,37 +137,32 @@ serve(async (req) => {
     const fullContext = [context, syncSpotContext].filter(Boolean).join('\n\n');
     const systemPrompt = buildSystemPrompt(fullContext);
 
-    // Try Mistral first
-    if (mistralApiKey) {
+    // Use Gemini as primary (better at following strict instructions)
+    if (geminiApiKey) {
       try {
-        console.log('Trying Mistral...');
-        const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${mistralApiKey}`
-          },
-          body: JSON.stringify({
-            model: 'mistral-large-latest',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: message }
-            ],
-            temperature: 0.3,
-            max_tokens: 500
-          })
-        });
+        console.log('Using Gemini for chat...');
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: `${systemPrompt}\n\nStudent Question: ${message}` }] }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
+            })
+          }
+        );
 
         if (!resp.ok) {
           const errText = await resp.text();
-          console.error('Mistral error:', resp.status, errText);
-          throw new Error('Mistral failed');
+          console.error('Gemini error:', resp.status, errText);
+          throw new Error('Gemini failed');
         }
 
         const data = await resp.json();
-        let text = data.choices?.[0]?.message?.content || '';
+        let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-        if (!text) throw new Error('Empty Mistral response');
+        if (!text) throw new Error('Empty Gemini response');
 
         text = cleanResponse(text);
 
@@ -178,39 +171,44 @@ serve(async (req) => {
           return makeSyncSpotResponse();
         }
 
-        return new Response(JSON.stringify({ response: text, source: 'mistral' }), {
+        return new Response(JSON.stringify({ response: text, source: 'gemini' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       } catch (e) {
-        console.error('Mistral failed, trying Gemini:', e);
+        console.error('Gemini failed, trying Mistral:', e);
       }
     }
 
-    // Fallback: Gemini
-    if (geminiApiKey) {
-      console.log('Trying Gemini...');
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: `${systemPrompt}\n\nStudent Question: ${message}` }] }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 500 }
-          })
-        }
-      );
+    // Fallback: Mistral
+    if (mistralApiKey) {
+      console.log('Trying Mistral...');
+      const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${mistralApiKey}`
+        },
+        body: JSON.stringify({
+          model: 'mistral-large-latest',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message }
+          ],
+          temperature: 0.1,
+          max_tokens: 500
+        })
+      });
 
       if (!resp.ok) {
         const errText = await resp.text();
-        console.error('Gemini error:', resp.status, errText);
+        console.error('Mistral error:', resp.status, errText);
         throw new Error('All AI services failed');
       }
 
       const data = await resp.json();
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      let text = data.choices?.[0]?.message?.content || '';
 
-      if (!text) throw new Error('Empty Gemini response');
+      if (!text) throw new Error('Empty Mistral response');
 
       text = cleanResponse(text);
 
@@ -219,7 +217,7 @@ serve(async (req) => {
         return makeSyncSpotResponse();
       }
 
-      return new Response(JSON.stringify({ response: text, source: 'gemini' }), {
+      return new Response(JSON.stringify({ response: text, source: 'mistral' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

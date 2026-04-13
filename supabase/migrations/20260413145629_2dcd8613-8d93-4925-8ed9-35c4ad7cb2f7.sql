@@ -1,0 +1,1 @@
+ALTER TABLE public.college_data ADD COLUMN IF NOT EXISTS parsed_content text;
