@@ -24,6 +24,7 @@ export type Database = {
           file_type: string | null
           file_url: string | null
           id: string
+          parsed_content: string | null
           tags: string[] | null
           title: string
           updated_at: string
@@ -37,6 +38,7 @@ export type Database = {
           file_type?: string | null
           file_url?: string | null
           id?: string
+          parsed_content?: string | null
           tags?: string[] | null
           title: string
           updated_at?: string
@@ -50,6 +52,7 @@ export type Database = {
           file_type?: string | null
           file_url?: string | null
           id?: string
+          parsed_content?: string | null
           tags?: string[] | null
           title?: string
           updated_at?: string
