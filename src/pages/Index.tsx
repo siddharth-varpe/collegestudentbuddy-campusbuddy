@@ -234,7 +234,7 @@ const Index = () => {
         )}
 
         {/* ═══════════════ LIVE DEMO PREVIEW ═══════════════ */}
-        <section id="demo" className="container mx-auto px-4 py-20">
+        <section id="demo" ref={demo.ref} className={`container mx-auto px-4 py-20 transition-all duration-700 ${demo.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
           <div className="text-center mb-12 animate-fade-in">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mb-4 border border-primary/20">
               Live Preview
@@ -285,7 +285,7 @@ const Index = () => {
         </section>
 
         {/* ═══════════════ FEATURES ═══════════════ */}
-        <section id="features" className="container mx-auto px-4 py-20">
+        <section id="features" ref={features.ref} className={`container mx-auto px-4 py-20 transition-all duration-700 ${features.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
           <div className="text-center mb-14 animate-fade-in">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mb-4 border border-primary/20">
               Features
@@ -316,7 +316,7 @@ const Index = () => {
         </section>
 
         {/* ═══════════════ HOW IT WORKS ═══════════════ */}
-        <section className="container mx-auto px-4 py-20">
+        <section ref={howItWorks.ref} className={`container mx-auto px-4 py-20 transition-all duration-700 ${howItWorks.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
           <div className="text-center mb-14 animate-fade-in">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mb-4 border border-primary/20">
               Simple Process
@@ -349,7 +349,7 @@ const Index = () => {
 
         {/* ═══════════════ STUDENT / FACULTY CTA ═══════════════ */}
         {!user && (
-          <section className="container mx-auto px-4 py-20">
+          <section ref={portals.ref} className={`container mx-auto px-4 py-20 transition-all duration-700 ${portals.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
             <div className="text-center mb-12 animate-fade-in">
               <h2 className="text-3xl md:text-4xl font-bold font-poppins text-foreground mb-4">
                 Choose Your Portal
@@ -405,7 +405,7 @@ const Index = () => {
         )}
 
         {/* ═══════════════ TESTIMONIALS ═══════════════ */}
-        <section className="container mx-auto px-4 py-20">
+        <section ref={testimonials.ref} className={`container mx-auto px-4 py-20 transition-all duration-700 ${testimonials.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
           <div className="text-center mb-14 animate-fade-in">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mb-4 border border-primary/20">
               Testimonials
@@ -444,7 +444,7 @@ const Index = () => {
 
         {/* ═══════════════ CTA BANNER ═══════════════ */}
         {!user && (
-          <section className="container mx-auto px-4 py-16">
+          <section ref={ctaBanner.ref} className={`container mx-auto px-4 py-16 transition-all duration-700 ${ctaBanner.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
             <div className="relative rounded-3xl overflow-hidden">
               <div className="absolute inset-0 gradient-campus opacity-90" />
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_hsl(var(--ring)/0.3),_transparent_50%)]" />
