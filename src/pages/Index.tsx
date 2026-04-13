@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useScrollReveal } from '@/hooks/use-scroll-reveal';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { NavigationBar } from '@/components/ui/navigation-bar';
