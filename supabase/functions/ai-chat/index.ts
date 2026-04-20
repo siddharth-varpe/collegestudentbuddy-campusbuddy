@@ -52,19 +52,51 @@ Remember: If the answer is not in the data above, respond with SYNCSPOT_REDIRECT
 
 async function postToSyncSpot(req: Request, supabaseUrl: string, supabaseKey: string, message: string) {
   const authHeader = req.headers.get('authorization');
-  if (!authHeader) return;
+  console.log('postToSyncSpot called, authHeader present:', !!authHeader);
   try {
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseClient = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } }
-    });
-    const { data: userData } = await supabaseClient.auth.getUser(token);
-    if (userData?.user) {
-      await supabaseClient.from('syncspot_questions').insert({
-        question: message,
-        user_id: userData.user.id
+    let askedBy: string | null = null;
+    let studentName: string | null = null;
+
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      const authedClient = createClient(supabaseUrl, supabaseKey, {
+        global: { headers: { Authorization: authHeader } }
       });
-      console.log('Question posted to SyncSpot');
+      const { data: userData, error: userErr } = await authedClient.auth.getUser(token);
+      if (userErr) console.error('getUser error:', userErr);
+      if (userData?.user) {
+        askedBy = userData.user.id;
+        // Fetch profile name
+        const { data: profile } = await authedClient
+          .from('profiles')
+          .select('full_name')
+          .eq('user_id', userData.user.id)
+          .maybeSingle();
+        studentName = profile?.full_name || userData.user.email || null;
+      }
+    }
+
+    // Use service role for the insert so it always succeeds regardless of RLS
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const insertClient = serviceKey
+      ? createClient(supabaseUrl, serviceKey)
+      : createClient(supabaseUrl, supabaseKey);
+
+    const { data: inserted, error: insertErr } = await insertClient
+      .from('syncspot_questions')
+      .insert({
+        question: message,
+        asked_by: askedBy,
+        student_name: studentName,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (insertErr) {
+      console.error('SyncSpot insert error:', insertErr);
+    } else {
+      console.log('Question posted to SyncSpot:', inserted?.id);
     }
   } catch (e) {
     console.error('Error posting to SyncSpot:', e);
