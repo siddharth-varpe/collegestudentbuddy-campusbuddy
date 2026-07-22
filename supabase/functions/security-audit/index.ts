@@ -120,26 +120,39 @@ serve(async (req) => {
   });
 
   // 7. SUPA_auth_leaked_password_protection — HIBP toggle on.
-  // Fetch via GoTrue admin config endpoint (service role required).
-  let hibpOn: boolean | null = hibp_enabled;
-  if (hibpOn === null) {
-    try {
-      const resp = await fetch(`${supabaseUrl}/auth/v1/admin/config`, {
-        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
-      });
-      if (resp.ok) {
-        const cfg = await resp.json();
-        hibpOn = cfg?.password_hibp_enabled ?? cfg?.security?.password_hibp_enabled ?? null;
+  // Behavioral check: attempt to create a user with a known-leaked password.
+  // GoTrue rejects with "weak_password" / "password is known to be compromised"
+  // when HIBP is enabled. We immediately delete the user if creation succeeded.
+  let hibpOn: boolean | null = null;
+  let hibpDetails = '';
+  try {
+    const probeEmail = `hibp-probe-${crypto.randomUUID()}@campusbuddy.local`;
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email: probeEmail,
+      password: 'password',
+      email_confirm: true,
+    });
+    if (createErr) {
+      const msg = createErr.message?.toLowerCase() ?? '';
+      if (msg.includes('compromis') || msg.includes('pwned') || msg.includes('weak_password') || msg.includes('leak')) {
+        hibpOn = true;
+      } else {
+        hibpOn = false;
+        hibpDetails = `Unexpected error: ${createErr.message}`;
       }
-    } catch (_) {
-      // leave null
+    } else if (created?.user) {
+      hibpOn = false;
+      hibpDetails = 'Signup with leaked password succeeded';
+      await admin.auth.admin.deleteUser(created.user.id);
     }
+  } catch (e) {
+    hibpDetails = `HIBP probe threw: ${(e as Error).message}`;
   }
   results.push({
     id: 'SUPA_auth_leaked_password_protection',
     finding: 'Leaked password protection (HIBP) enabled',
     passed: hibpOn === true,
-    details: hibpOn === true ? undefined : `password_hibp_enabled = ${hibpOn}`,
+    details: hibpOn === true ? undefined : hibpDetails || `password_hibp_enabled = ${hibpOn}`,
   });
 
   const failed = results.filter((r) => !r.passed);
