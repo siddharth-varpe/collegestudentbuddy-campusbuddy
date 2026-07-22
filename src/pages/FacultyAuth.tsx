@@ -7,23 +7,49 @@ import { Label } from '@/components/ui/label';
 import { NavigationBar } from '@/components/ui/navigation-bar';
 import { Shield, BookOpen, Bot, ArrowRight, Lock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+
+const FACULTY_EMAIL = 'faculty@campusbuddy.local';
 
 export default function FacultyAuth() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [facultyId, setFacultyId] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleFacultyAccess = () => {
-    // Hardcoded credentials check
-    if (facultyId === 'Neuron' && password === 'Neuron') {
-      navigate('/faculty-dashboard');
-    } else {
+  const handleFacultyAccess = async () => {
+    if (facultyId !== 'Neuron' || password !== 'Neuron') {
       toast({
         title: "Authentication Failed",
         description: "Invalid faculty ID or password. Please try again.",
         variant: "destructive"
       });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Ensure the faculty account exists (idempotent)
+      await supabase.functions.invoke('create-faculty');
+
+      // Sign in via Supabase so RLS-protected writes work
+      const { error } = await supabase.auth.signInWithPassword({
+        email: FACULTY_EMAIL,
+        password: 'Neuron',
+      });
+
+      if (error) throw error;
+      navigate('/faculty-dashboard');
+    } catch (err) {
+      console.error('Faculty sign-in error:', err);
+      toast({
+        title: "Sign-in Failed",
+        description: "Could not sign in to the faculty portal. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -83,10 +109,10 @@ export default function FacultyAuth() {
               <Button 
                 onClick={handleFacultyAccess}
                 className="w-full gradient-campus hover:opacity-90 transition-smooth text-base sm:text-lg py-5 sm:py-6 mt-4 sm:mt-6"
-                disabled={!facultyId.trim() || !password.trim()}
+                disabled={!facultyId.trim() || !password.trim() || isLoading}
               >
                 <Lock className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                Access Faculty Dashboard
+                {isLoading ? 'Signing in...' : 'Access Faculty Dashboard'}
                 <ArrowRight className="ml-2 h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </CardContent>

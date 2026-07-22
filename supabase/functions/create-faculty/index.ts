@@ -19,8 +19,8 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const facultyEmail = 'keystone'
-    const facultyPassword = 'keystone'
+    const facultyEmail = 'faculty@campusbuddy.local'
+    const facultyPassword = 'Neuron'
 
     console.log('Creating faculty account with credentials:', facultyEmail)
 
