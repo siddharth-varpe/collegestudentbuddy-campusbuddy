@@ -120,30 +120,35 @@ serve(async (req) => {
   });
 
   // 7. SUPA_auth_leaked_password_protection — HIBP toggle on.
-  // Behavioral check: attempt to create a user with a known-leaked password.
-  // GoTrue rejects with "weak_password" / "password is known to be compromised"
-  // when HIBP is enabled. We immediately delete the user if creation succeeded.
+  // Behavioral probe: call the public signUp endpoint (anon client) with a
+  // known-leaked password. GoTrue returns weak_password when HIBP is enabled.
+  // admin.createUser bypasses HIBP, so we must use the anon flow.
   let hibpOn: boolean | null = null;
   let hibpDetails = '';
   try {
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const anonClient = createClient(supabaseUrl, anonKey);
     const probeEmail = `hibp-probe-${crypto.randomUUID()}@campusbuddy.local`;
-    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    const { data: signup, error: signupErr } = await anonClient.auth.signUp({
       email: probeEmail,
       password: 'password',
-      email_confirm: true,
     });
-    if (createErr) {
-      const msg = createErr.message?.toLowerCase() ?? '';
-      if (msg.includes('compromis') || msg.includes('pwned') || msg.includes('weak_password') || msg.includes('leak')) {
+    if (signupErr) {
+      const msg = signupErr.message?.toLowerCase() ?? '';
+      const code = (signupErr as unknown as { code?: string }).code?.toLowerCase() ?? '';
+      if (msg.includes('compromis') || msg.includes('pwned') || msg.includes('leak') || code === 'weak_password') {
         hibpOn = true;
       } else {
         hibpOn = false;
-        hibpDetails = `Unexpected error: ${createErr.message}`;
+        hibpDetails = `Unexpected signUp error: ${signupErr.message}`;
       }
-    } else if (created?.user) {
+    } else {
       hibpOn = false;
       hibpDetails = 'Signup with leaked password succeeded';
-      await admin.auth.admin.deleteUser(created.user.id);
+    }
+    // Clean up any user that was created despite HIBP check (only if hibp is off).
+    if (signup?.user?.id) {
+      await admin.auth.admin.deleteUser(signup.user.id);
     }
   } catch (e) {
     hibpDetails = `HIBP probe threw: ${(e as Error).message}`;
