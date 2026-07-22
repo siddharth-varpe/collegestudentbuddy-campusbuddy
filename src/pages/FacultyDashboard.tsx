@@ -176,11 +176,22 @@ export default function FacultyDashboard() {
       let fileName = null;
       let fileType = null;
 
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({
+          title: "Not signed in",
+          description: "Please sign in through the Faculty Portal.",
+          variant: "destructive"
+        });
+        navigate('/faculty-auth');
+        return;
+      }
+
       if (uploadedFile) {
         setIsProcessingFile(true);
         const fileExt = uploadedFile.name.split('.').pop();
-        const filePath = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-        
+        const filePath = `${user.id}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+
         const { error: uploadError } = await supabase.storage
           .from('documents')
           .upload(filePath, uploadedFile);
@@ -207,7 +218,7 @@ export default function FacultyDashboard() {
             file_url: fileUrl,
             file_name: fileName,
             file_type: fileType,
-            created_by: null
+            created_by: user.id
           }
         ])
         .select()
