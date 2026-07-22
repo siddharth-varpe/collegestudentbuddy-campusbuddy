@@ -101,6 +101,27 @@ export type Database = {
         }
         Relationships: []
       }
+      security_audit_log: {
+        Row: {
+          created_at: string
+          id: string
+          ok: boolean
+          results: Json
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ok: boolean
+          results: Json
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ok?: boolean
+          results?: Json
+        }
+        Relationships: []
+      }
       syncspot_answers: {
         Row: {
           answer: string
@@ -168,7 +189,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      security_audit_snapshot: { Args: never; Returns: Json }
     }
     Enums: {
       [_ in never]: never
