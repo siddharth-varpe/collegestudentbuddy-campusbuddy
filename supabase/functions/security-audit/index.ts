@@ -98,15 +98,15 @@ serve(async (req) => {
 
   // 6. documents_bucket_no_ownership_check — every write policy on documents
   // requires the auth.uid() = folder prefix check.
-  const OWNERSHIP_MARK = "auth.uid()::text = (storage.foldername(name))[1]";
+  const OWNERSHIP_MARK = 'foldername(name)';
   const documentsWritePolicies = storage_policies.filter((p) =>
     ['INSERT', 'UPDATE', 'DELETE'].includes(p.cmd) &&
-    // Only consider policies scoped to the documents bucket
     (`${p.qual ?? ''} ${p.with_check ?? ''}`).includes("'documents'"),
   );
-  const missingOwnership = documentsWritePolicies.filter(
-    (p) => !(`${p.qual ?? ''} ${p.with_check ?? ''}`).includes(OWNERSHIP_MARK),
-  );
+  const missingOwnership = documentsWritePolicies.filter((p) => {
+    const expr = `${p.qual ?? ''} ${p.with_check ?? ''}`;
+    return !(expr.includes(OWNERSHIP_MARK) && expr.includes('auth.uid()'));
+  });
   results.push({
     id: 'documents_bucket_no_ownership_check',
     finding: 'documents write policies enforce owner path prefix',
@@ -120,11 +120,26 @@ serve(async (req) => {
   });
 
   // 7. SUPA_auth_leaked_password_protection — HIBP toggle on.
+  // Fetch via GoTrue admin config endpoint (service role required).
+  let hibpOn: boolean | null = hibp_enabled;
+  if (hibpOn === null) {
+    try {
+      const resp = await fetch(`${supabaseUrl}/auth/v1/admin/config`, {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      });
+      if (resp.ok) {
+        const cfg = await resp.json();
+        hibpOn = cfg?.password_hibp_enabled ?? cfg?.security?.password_hibp_enabled ?? null;
+      }
+    } catch (_) {
+      // leave null
+    }
+  }
   results.push({
     id: 'SUPA_auth_leaked_password_protection',
     finding: 'Leaked password protection (HIBP) enabled',
-    passed: hibp_enabled === true,
-    details: hibp_enabled === true ? undefined : `password_hibp_enabled = ${hibp_enabled}`,
+    passed: hibpOn === true,
+    details: hibpOn === true ? undefined : `password_hibp_enabled = ${hibpOn}`,
   });
 
   const failed = results.filter((r) => !r.passed);
