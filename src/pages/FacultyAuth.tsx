@@ -109,10 +109,10 @@ export default function FacultyAuth() {
               <Button 
                 onClick={handleFacultyAccess}
                 className="w-full gradient-campus hover:opacity-90 transition-smooth text-base sm:text-lg py-5 sm:py-6 mt-4 sm:mt-6"
-                disabled={!facultyId.trim() || !password.trim()}
+                disabled={!facultyId.trim() || !password.trim() || isLoading}
               >
                 <Lock className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                Access Faculty Dashboard
+                {isLoading ? 'Signing in...' : 'Access Faculty Dashboard'}
                 <ArrowRight className="ml-2 h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </CardContent>
