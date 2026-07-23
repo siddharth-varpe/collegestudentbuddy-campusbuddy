@@ -1,0 +1,1 @@
+CREATE POLICY "Owners can delete their syncspot questions" ON public.syncspot_questions FOR DELETE TO authenticated USING (auth.uid() = asked_by);
