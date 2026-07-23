@@ -225,7 +225,9 @@ export default function SyncSpot() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
                       <User className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Student Question</span>
+                      <span className="text-sm text-muted-foreground">
+                        {question.student_name || 'Anonymous student'}
+                      </span>
                       <Clock className="h-4 w-4 text-muted-foreground ml-2" />
                       <span className="text-sm text-muted-foreground">
                         {formatTime(question.created_at)}
@@ -246,6 +248,7 @@ export default function SyncSpot() {
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
+
                 </div>
 
                 {/* Answers */}
