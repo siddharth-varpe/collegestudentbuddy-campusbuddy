@@ -50,7 +50,18 @@ export default function SyncSpot() {
       return;
     }
     fetchQuestions();
+
+    const channel = supabase
+      .channel('syncspot-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'syncspot_questions' }, () => fetchQuestions())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'syncspot_answers' }, () => fetchQuestions())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user, navigate]);
+
 
   const fetchQuestions = async () => {
     try {
